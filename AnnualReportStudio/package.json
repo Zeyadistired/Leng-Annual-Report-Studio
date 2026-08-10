@@ -1,0 +1,38 @@
+{
+    "name":  "annual-report-studio",
+    "productName":  "Leng",
+    "version":  "1.0.0",
+    "description":  "Nile University annual report renewal workbench",
+    "main":  "main.js",
+    "author":  "Nile University",
+    "license":  "UNLICENSED",
+    "scripts":  {
+                    "start":  "electron .",
+                    "dist":  "electron-builder --win",
+                    "portable":  "electron-builder --win portable"
+                },
+    "build":  {
+                  "appId":  "com.nileuniversity.annualreportstudio",
+                  "productName":  "Leng",
+                  "files":  [
+                                "app.html",
+                                "main.js",
+                                "preload.js",
+                                "lib/**",
+                                "assets/**",
+                                "libs/**",
+                                "fonts/**"
+                            ],
+                  "win":  {
+                              "target":  "nsis",
+                              "icon":  "assets/icon.ico"
+                          }
+              },
+    "devDependencies":  {
+                            "electron":  "^43.3.0",
+                            "electron-builder":  "^26.15.3"
+                        },
+    "allowScripts":  {
+                         "electron@43.3.0":  true
+                     }
+}

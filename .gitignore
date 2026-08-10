@@ -1,0 +1,16 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+dist2/
+dist-new/
+*.exe
+
+# build logs
+*.log
+build*.txt
+nsis*.txt
+
+# unrelated workspace data
+tl.csv
