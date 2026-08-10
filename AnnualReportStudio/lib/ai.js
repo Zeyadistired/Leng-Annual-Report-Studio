@@ -3,7 +3,8 @@ const path = require('path');
 const crypto = require('crypto');
 const net = require('net');
 const http = require('http');
-const { spawn } = require('child_process');
+const os = require('os');
+const { spawn, execSync } = require('child_process');
 const zlib = require('zlib');
 const unzip = require('./unzip');
 
@@ -12,10 +13,24 @@ const PINNED = {
   serverSha256: 'defec84d389193c87aa3038d2bd6b8cb7ee0c2afcabfe04fcd069343f828e848',
   serverZip: 'llama-b10331-bin-win-cpu-x64.zip',
   serverExe: 'llama-server.exe',
-  modelUrl: 'https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf',
-  modelSha256: 'f6f851777709861056efcdad3af01da38b31223a3ba26e61a4f8bf3a2195813a',
-  modelFile: 'Qwen3-4B-Q4_K_M.gguf',
   defaultEndpoint: 'http://127.0.0.1:11434'
+};
+
+const MODELS = {
+  '1.7b': {
+    label: 'qwen3:1.7b',
+    size: '~1.1 GB',
+    file: 'Qwen3-1.7B-Q4_K_M.gguf',
+    url: 'https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf',
+    sha256: 'b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897'
+  },
+  '4b': {
+    label: 'qwen3:4b',
+    size: '~2.5 GB',
+    file: 'Qwen3-4B-Q4_K_M.gguf',
+    url: 'https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf',
+    sha256: 'f6f851777709861056efcdad3af01da38b31223a3ba26e61a4f8bf3a2195813a'
+  }
 };
 
 module.exports = function createAi(opts) {
@@ -33,10 +48,26 @@ module.exports = function createAi(opts) {
   let progress = { server: 0, model: 0 };
   let version = '';
   let endpoint = '';
+  let physicalCores = 0;
+
+  function modelKey() { return MODELS[store.get('ai.model', '1.7b')] ? store.get('ai.model', '1.7b') : '1.7b'; }
+  function modelConf() { return MODELS[modelKey()] || MODELS['1.7b']; }
+
+  function physicalCoresOf() {
+    if (physicalCores > 0) return physicalCores;
+    try {
+      const out = execSync('powershell -NoProfile -Command "(Get-CimInstance Win32_Processor).NumberOfCores"', { timeout: 8000, encoding: 'utf8', windowsHide: true });
+      const n = parseInt(String(out || '').trim(), 10);
+      if (n > 0) { physicalCores = n; return n; }
+    } catch (e) {}
+    physicalCores = Math.max(1, Math.floor(os.cpus().length / 2));
+    return physicalCores;
+  }
 
   function broadcast() { onState(state()); }
 
   function state() {
+    const mc = modelConf();
     return {
       phase,
       error,
@@ -45,11 +76,14 @@ module.exports = function createAi(opts) {
       endpoint: endpoint || '',
       wizardDone: !!store.get('ai.wizardDone'),
       enabled: !!store.get('ai.enabled'),
+      model: modelKey(),
+      modelLabel: mc.label,
+      modelSize: mc.size,
       source: store.get('ai.source', 'default'),
       customServerUrl: store.get('ai.customServerUrl', ''),
       customModelUrl: store.get('ai.customModelUrl', ''),
       localModelPath: store.get('ai.localModelPath', ''),
-      modelFile: conf.modelFile,
+      modelFile: mc.file,
       binDir,
       modelDir,
       serverReady: hasServer(),
@@ -61,7 +95,7 @@ module.exports = function createAi(opts) {
     try { return fs.existsSync(path.join(binDir, conf.serverExe)) && fs.statSync(path.join(binDir, conf.serverExe)).size > 0; } catch (e) { return false; }
   }
 
-  function modelPath() { return path.join(modelDir, conf.modelFile); }
+  function modelPath() { return path.join(modelDir, modelConf().file); }
 
   function modelExists() {
     try { return fs.existsSync(modelPath()) && fs.statSync(modelPath()).size > 0; } catch (e) { return false; }
@@ -204,6 +238,7 @@ module.exports = function createAi(opts) {
   }
 
   async function ensureModel(src) {
+    const mc = modelConf();
     fs.mkdirSync(modelDir, { recursive: true });
     if (src === 'local') {
       const lp = store.get('ai.localModelPath', '');
@@ -213,14 +248,13 @@ module.exports = function createAi(opts) {
       return lp;
     }
     const dest = modelPath();
-    let url = conf.modelUrl;
+    let url = mc.url;
     if (src === 'custom' && store.get('ai.customModelUrl')) url = store.get('ai.customModelUrl');
     if (fs.existsSync(dest) && fs.statSync(dest).size > 0) {
       if (src === 'default') {
-        const expected = (hooks.conf && hooks.conf.modelSha256) || conf.modelSha256;
-        if (expected) {
+        if (mc.sha256) {
           const h = await sha256File(dest);
-          if (h.toLowerCase() === String(expected).toLowerCase()) { progress.model = 100; return dest; }
+          if (h.toLowerCase() === String(mc.sha256).toLowerCase()) { progress.model = 100; return dest; }
         } else {
           progress.model = 100;
           return dest;
@@ -235,10 +269,9 @@ module.exports = function createAi(opts) {
     const tmp = dest + '.part';
     await download(url, tmp, 'model');
     if (src === 'default') {
-      const expected = (hooks.conf && hooks.conf.modelSha256) || conf.modelSha256;
-      if (expected) {
+      if (mc.sha256) {
         const h = await sha256File(tmp);
-        if (h.toLowerCase() !== String(expected).toLowerCase()) {
+        if (h.toLowerCase() !== String(mc.sha256).toLowerCase()) {
           try { fs.unlinkSync(tmp); } catch (e) {}
           throw new Error('Model checksum mismatch (SHA256)');
         }
@@ -261,7 +294,8 @@ module.exports = function createAi(opts) {
       const exe = await ensureServer(src);
       const modelFile = await ensureModel(src);
       const port = await getFreePort();
-      serverProc = spawnServer(exe, ['--host', '127.0.0.1', '--port', String(port), '--model', modelFile]);
+      const threads = physicalCoresOf();
+      serverProc = spawnServer(exe, ['--host', '127.0.0.1', '--port', String(port), '--model', modelFile, '--reasoning', 'off', '--ctx-size', '2048', '--parallel', '2', '--threads', String(threads), '-fa', 'on']);
       const ep = 'http://127.0.0.1:' + port;
       const ready = await waitReady(ep, 120000);
       if (!ready.ok) throw new Error('llama-server did not become ready: ' + (ready.error || 'timeout'));
@@ -324,6 +358,13 @@ module.exports = function createAi(opts) {
     if (patch.customModelUrl !== undefined) store.set('ai.customModelUrl', String(patch.customModelUrl));
     if (patch.localModelPath !== undefined) store.set('ai.localModelPath', String(patch.localModelPath));
     if (patch.wizardDone !== undefined) store.set('ai.wizardDone', !!patch.wizardDone);
+    if (patch.model !== undefined && MODELS[String(patch.model)]) {
+      const changed = store.get('ai.model', '1.7b') !== String(patch.model);
+      store.set('ai.model', String(patch.model));
+      if (changed && store.get('ai.enabled')) {
+        setTimeout(() => { runSetup().catch(() => {}); }, 0);
+      }
+    }
     return state();
   }
 

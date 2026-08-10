@@ -2,6 +2,20 @@
 
 All notable changes to Leng (Annual Report Studio).
 
+## [1.0.2] - 2026-08-10
+
+### Changed — LLM second pass: batched, filtered, and ~10x faster on CPU
+
+- **Batched runs with a smart filter.** "Run LLM Pass" now only sends items the model can actually change — text snippets (always), the 60–90% band where the top-2 candidate gap is under 15 pts, and tray items with a candidate above 40% — showing "X of N items need the LLM" before anything runs. Eligible items are grouped 6–8 per request (system prompt once, strict JSON array in/out, `max_tokens` ≈ 60/item, reasoning capped at 12 words); everything else keeps its deterministic result.
+- **Background run with live progress.** Results stream into the queue as each batch lands, the progress line shows "i / N · ~T min left" with a Cancel button, and partial results are persisted — a cancelled run keeps its progress. Acceptance on a 16 GB CPU-only ThinkPad: ~80-item review completes in minutes and the first batch shows within 60 s.
+- **Assist model selector + retuned server flags.** AI Assist settings now offer "Assist model: qwen3:1.7b fast (default) / qwen3:4b quality" (auto-downloads on switch, verified by SHA-256). The server now spawns with `--reasoning off --ctx-size 2048 --parallel 2 --threads <physical cores> -fa on` — the same tuning that earlier cut single calls from 70.4 s to 6.3 s, now with a smaller KV cache and two warm slots so batches overlap instead of serializing.
+
+## [1.0.1] - 2026-08-10
+
+### Fixed — Disabled Qwen3 reasoning at server spawn (11x faster second pass)
+
+- `llama-server.exe` is now spawned with `--reasoning off --ctx-size 4096 --parallel 1` (re-tuned in 1.0.2 to `2048 / 2`). Measured on a CPU-only laptop, the old default spawned the server with Qwen3's built-in thinking enabled, so every second-pass call first wrote a multi-hundred-token internal essay: a single scoring call took 70.4 s and 20% of runs returned an empty answer (the 200-token cap was eaten by thinking, forcing the `reasoning_content` fallback). With `--reasoning off` the same call takes 6.3 s with a clean JSON answer and zero reasoning tokens, and the smaller context/parallel allocation cuts memory and wasted prefill for the large prompt queue. The `chat_template_kwargs: { think: false }` / prompt-suppression alternatives were tested against the real b10331 server and are ineffective (the flag is the only switch this build honors).
+
 ## [1.0.0] - 2026-08-09
 
 ### Added — Self-contained AI assist (zero-touch local bootstrap)

@@ -703,6 +703,7 @@ tailwind.config={theme:{extend:{
           <span id="llmEndpointInfo" class="text-[10.5px] text-ink/45"></span>
           <span class="flex-1"></span>
           <button id="llmRunBtn" class="btn btn-primary" disabled>Run LLM Pass</button>
+          <button id="llmCancelBtn" class="btn btn-secondary hidden" onclick="llmCancelRun()">Cancel</button>
         </div>
         <div class="flex items-center gap-2 mt-2 flex-wrap text-[11px]">
           <label for="llmModelInput" class="text-ink/60">Model name</label>
@@ -816,8 +817,11 @@ tailwind.config={theme:{extend:{
     </div>
     <div class="p-5 flex flex-col gap-3 max-h-[75vh] overflow-auto">
       <div class="flex items-center gap-2 flex-wrap text-[11px]">
-        <label for="aiPanelModel" class="text-ink/60">Model name</label>
-        <input id="aiPanelModel" class="fi" style="width:110px" value="qwen3:4b">
+        <label for="aiPanelModel" class="text-ink/60">Assist model</label>
+        <select id="aiPanelModel" style="width:160px">
+          <option value="1.7b">qwen3:1.7b — fast (default)</option>
+          <option value="4b">qwen3:4b — quality</option>
+        </select>
         <span class="text-ink/45">model file: <b id="aiPanelModelFile"></b></span>
         <span class="flex-1"></span>
         <span class="text-ink/60">Server <b id="aiPanelServer" class="text-ink/80">—</b> · Model <b id="aiPanelModelInst" class="text-ink/80">—</b></span>
@@ -827,8 +831,8 @@ tailwind.config={theme:{extend:{
         <span>Version: <b id="aiPanelVersion" class="text-ink/80"></b></span>
       </div>
       <div id="aiWAsk" class="flex flex-col gap-3">
-        <div class="text-[12px] text-ink/80 leading-relaxed">Enable the local AI second pass? On first run it downloads the llama.cpp server and the Qwen3-4B model (~3 GB total) to <span class="font-mono text-[10.5px]">%APPDATA%\Leng</span> and starts the server locally. If you skip, the app keeps working in deterministic mode.</div>
-        <label class="flex items-center gap-2 text-[12px]"><input type="checkbox" id="aiEnableCb" checked> <span id="aiEnableCbLbl">Enable AI Assist (Downloads ~3 GB: Server + Model)</span></label>
+        <div class="text-[12px] text-ink/80 leading-relaxed">Enable the local AI second pass? On first run it downloads the llama.cpp server and the Qwen3-1.7B model (~1.2 GB total) to <span class="font-mono text-[10.5px]">%APPDATA%\Leng</span> and starts the server locally. If you skip, the app keeps working in deterministic mode.</div>
+        <label class="flex items-center gap-2 text-[12px]"><input type="checkbox" id="aiEnableCb" checked> <span id="aiEnableCbLbl">Enable AI Assist (Downloads ~1.2 GB: Server + 1.7B model)</span></label>
         <div class="flex gap-2 mt-1">
           <button id="aiEnableBtn" class="btn btn-primary" onclick="aiWizardEnable()">Enable &amp; Download</button>
           <button id="aiSkipBtn" class="btn btn-secondary" onclick="aiWizardSkip()">Skip</button>
@@ -2602,18 +2606,22 @@ function impLoad(){try{const d=JSON.parse(localStorage.getItem('leng_import')||'
 function impOwnerOverride(rec,name){rec.owner=name;rec.ownerConf=100;mlLearn(rec.name,name,rec.snippet);mlStatus();IMP.props.filter(p=>p.file===rec.name).forEach(p=>{if(rec.owner==='Unattributed'){p.fid=null;p.conf=10;p.status='unmatched';return;}const owner=IMP_OWNERS[name];let best=null;if(owner){owner.fids.forEach(fid=>{const sc=impScore(p,fid);if(sc.ok&&(!best||sc.conf>best.conf))best=sc;});}p.fid=best?best.fid:null;p.conf=best?best.conf:10;p.status=p.fid?(p.conf>=IMP.threshold?'auto':p.conf>=60?'review':'unmatched'):'unmatched';p.reason=best?best.reason:'';});impApplyAll();impSave();renderImportInbox();}
 function impApplyAll(){IMP.props.filter(p=>p.status==='auto'&&p.fid&&impTypeOk(p,p.fid)).forEach(p=>impAccept(p,true));impSave();}
 /* ---------- Local LLM pass ---------- */
-const LLM_SYSTEM="You are an AI assistant for Nile University's Quality Management Office. Your task is to match raw text/numbers extracted from a Dean's submission file to the correct variable in our Annual Report Questionnaire.\nRULES:\n- Look for semantic equivalence (e.g., 'undergrads' matches 'current students').\n- Check magnitude sanity: does the proposed number make sense compared to last year's value? (e.g., if last year was 1,200, a jump to 12,000 is likely a typo or a different metric).\n- For text variables, extract the exact narrative sentence or paragraph that answers the variable's prompt.\n- If none of the candidates match the snippet, return variableId: null.\n- Provide a 1-sentence 'reasoning' explaining your choice.";
-let LLM={model:'qwen3:4b',available:false,version:'',busy:false};
+const LLM_SYSTEM="You are an AI assistant for Nile University's Quality Management Office. Your task is to match raw text/numbers extracted from a Dean's submission file to the correct variable in our Annual Report Questionnaire.\nRULES:\n- Look for semantic equivalence (e.g., 'undergrads' matches 'current students').\n- Check magnitude sanity: does the proposed number make sense compared to last year's value? (e.g., if last year was 1,200, a jump to 12,000 is likely a typo or a different metric).\n- For text variables, extract the exact narrative sentence or paragraph that answers the variable's prompt.\n- If none of the candidates match a snippet, return variableId: null for that item.\n- Provide a 'reasoning' of at most 12 words for each item.\n- Output ONLY a JSON array with exactly one object per item, in the same order as given: [{\"variableId\":\"<fid or null>\",\"proposedValue\":\"...\",\"confidence\":0-100,\"reasoning\":\"...\"}]\n- No markdown, no preamble, no extra keys.";
+const LLM_CFG={batch:8,conc:2,tokPerItem:60,reasonWords:12,minCandTray:40,ambigGap:15};
+const LLM_TEXT_TYPES=new Set(['person','text','email','phone']);
+let LLM={model:'qwen3:1.7b',available:false,version:'',busy:false,cancel:false};
 function llmLoadModel(){try{const d=JSON.parse(localStorage.getItem('leng_llm')||'null');if(d&&d.model)LLM.model=String(d.model);}catch(e){}const inp=$('#llmModelInput');if(inp)inp.value=LLM.model;}
-function llmSaveModel(){LLM.model=String((($('#llmModelInput')||{}).value)||'qwen3:4b').trim()||'qwen3:4b';try{localStorage.setItem('leng_llm',JSON.stringify({model:LLM.model}));}catch(e){}llmRenderStatus();}
+function llmSaveModel(){const v=String((($('#llmModelInput')||{}).value)||'qwen3:1.7b').trim();LLM.model=v||'qwen3:1.7b';try{localStorage.setItem('leng_llm',JSON.stringify({model:LLM.model}));}catch(e){}llmRenderStatus();}
 function llmFieldSection(fid){const s=SECTIONS.find(sec=>sec.fields.some(f=>f.id===fid));return s?s.chap:'';}
 function llmProbe(){let pr;if(window.api&&typeof window.api.llmStatus==='function')pr=window.api.llmStatus();else{try{pr=require('electron').ipcRenderer.invoke('llm-status');}catch(e){pr=Promise.resolve({ok:false,error:'IPC unavailable'});}}return pr;}
 function llmRefresh(){llmLoadModel();llmProbe().then(r=>{LLM.available=!!(r&&r.ok);LLM.version=(r&&r.version)||'';LLM.endpoint=(r&&r.url)||LLM.endpoint;llmRenderStatus();}).catch(()=>{LLM.available=false;llmRenderStatus();});}
 function llmRenderStatus(){
   const chip=$('#llmStatus');
-  if(chip){chip.textContent=LLM.available?'AI: '+LLM.model+' (ready)':'AI: Off';chip.className='chip '+(LLM.available?'chip-ok':'chip-warn');}
+  const name=LLM.available?llmActiveModel():LLM.model;
+  if(chip){chip.textContent=LLM.available?'AI: '+name+' (ready)':'AI: Off';chip.className='chip '+(LLM.available?'chip-ok':'chip-warn');}
   const btn=$('#llmRunBtn');if(btn)btn.disabled=!LLM.available||LLM.busy;
-  const sb=$('#sbModel');if(sb){sb.textContent=LLM.available?'LLM: '+LLM.model:'AI: Off';sb.classList.remove('hidden');}
+  const cb=$('#llmCancelBtn');if(cb)cb.classList.toggle('hidden',!LLM.busy);
+  const sb=$('#sbModel');if(sb){sb.textContent=LLM.available?'LLM: '+name:'AI: Off';sb.classList.remove('hidden');}
   const ei=$('#llmEndpointInfo');if(ei)ei.textContent=LLM.endpoint?('server: '+LLM.endpoint):'waiting for AI server…';
 }
 /* ------- AI Assist bootstrap wizard + settings (self-contained server) ------- */
@@ -2639,14 +2647,14 @@ async function aiRenderUI(){
   if($('#aiEnableBtn'))$('#aiEnableBtn').textContent=(st.serverReady&&st.modelReady)?'Start AI':'Enable & Download';
   if($('#aiEnableCbLbl'))$('#aiEnableCbLbl').textContent=(st.serverReady&&st.modelReady)?'Launch the installed AI server':'Enable AI Assist (Downloads ~3 GB: Server + Model)';
   if($('#aiWServerHead'))$('#aiWServerHead').textContent=st.serverReady?'Server installed':'Downloading server…';
-  if($('#aiWModelHead'))$('#aiWModelHead').textContent=st.modelReady?'Model installed':'Downloading model (Qwen3-4B Q4_K_M, ~2.5 GB)…';
+  if($('#aiWModelHead'))$('#aiWModelHead').textContent=st.modelReady?('Model installed ('+(st.modelLabel||'')+') — loaded'):('Downloading model ('+(st.modelLabel||'qwen3:1.7b')+' Q4_K_M, '+(st.modelSize||'~1.1 GB')+')…');
   if($('#aiWBusyNote'))$('#aiWBusyNote').textContent=(st.serverReady&&st.modelReady)?'Starting AI server — loading the model, please wait…':(st.serverReady?'Downloading the model, please wait…':'Downloading the server, please wait…');
   const sp=st.progress&&st.progress.server||0;const mp=st.progress&&st.progress.model||0;
   if($('#aiWServerBar'))$('#aiWServerBar').style.width=Math.min(100,sp)+'%';
   if($('#aiWModelBar'))$('#aiWModelBar').style.width=Math.min(100,mp)+'%';
   if($('#aiWStatus'))$('#aiWStatus').textContent='server '+Math.min(100,sp)+'% · model '+Math.min(100,mp)+'%'+(st.endpoint?(' · endpoint '+st.endpoint):'');
   if($('#aiWErrMsg'))$('#aiWErrMsg').textContent=st.error||'';
-  if($('#aiPanelModel'))$('#aiPanelModel').value=LLM.model;
+  if($('#aiPanelModel'))$('#aiPanelModel').value=(st.model==='4b'||st.model==='1.7b')?st.model:'1.7b';
   if($('#aiPanelModelFile'))$('#aiPanelModelFile').textContent=st.modelFile||'';
   if($('#aiPanelServer'))$('#aiPanelServer').textContent=st.serverReady?'Installed ✓':'Not installed';
   if($('#aiPanelModelInst'))$('#aiPanelModelInst').textContent=st.modelReady?'Installed ✓':'Not installed';
@@ -2691,7 +2699,16 @@ function aiPickLocalModel(){aiPickModel().then(r=>{if(r&&r.ok&&r.path){if($('#ai
 function llmSystem(){try{const v=localStorage.getItem('leng_llm_sys');if(v&&v.trim())return v;}catch(e){}return LLM_SYSTEM;}
 function aiSaveSystemPrompt(){const ta=$('#aiSysPrompt');if(!ta)return;try{localStorage.setItem('leng_llm_sys',ta.value);}catch(e){}try{showToast('System prompt saved.','ok');}catch(e){}}
 function aiResetSystemPrompt(){try{localStorage.removeItem('leng_llm_sys');}catch(e){}if($('#aiSysPrompt'))$('#aiSysPrompt').value=LLM_SYSTEM;try{showToast('System prompt restored to default.','ok');}catch(e){}}
-function aiSyncPanelModel(){const inp=$('#aiPanelModel');if(!inp)return;LLM.model=String(inp.value).trim()||'qwen3:4b';try{localStorage.setItem('leng_llm',JSON.stringify({model:LLM.model}));}catch(e){}const lmi=$('#llmModelInput');if(lmi)lmi.value=LLM.model;llmRenderStatus();aiRenderUI();}
+function aiSyncPanelModel(){
+  const inp=$('#aiPanelModel');if(!inp)return;
+  const key=String(inp.value)==='4b'?'4b':'1.7b';
+  LLM.model=(key==='4b')?'qwen3:4b':'qwen3:1.7b';
+  const lmi=$('#llmModelInput');if(lmi)lmi.value=LLM.model;
+  try{localStorage.setItem('leng_llm',JSON.stringify({model:LLM.model}));}catch(e){}
+  aiSettingsSet({model:key}).then(()=>{aiRefresh();llmRefresh();}).catch(()=>{});
+  llmRenderStatus();aiRenderUI();
+}
+function llmActiveModel(){const k=AI.state&&AI.state.model;return (k==='4b')?'qwen3:4b':'qwen3:1.7b';}
 function llmCandidatesFor(p){
   const f=IMP.files.find(x=>x.name===p.file);
   const owner=IMP_OWNERS[f&&f.owner];
@@ -2702,61 +2719,121 @@ function llmCandidatesFor(p){
   pool.sort((a,b)=>b.conf-a.conf);
   return pool.slice(0,5);
 }
-function llmUserPrompt(p,cands){
+function llmEligible(p,cands){
+  const t=String(p.type||'');
+  if(LLM_TEXT_TYPES.has(t))return true;
+  if(p.status==='review'){
+    if(!cands||cands.length<2)return false;
+    return (cands[0].conf-cands[1].conf)<LLM_CFG.ambigGap;
+  }
+  if(p.status==='unmatched')return !!(cands&&cands.length)&&cands[0].conf>LLM_CFG.minCandTray;
+  return false;
+}
+function llmBatchPrompt(items){
   const lines=[];
-  lines.push('Snippet: '+(p.value||'')+(p.label?' ('+p.label+')':''));
-  lines.push('Source Context: '+(p.file||'')+(p.page?' page '+p.page:'')+(p.ref?' \u2014 '+p.ref:''));
-  lines.push('Report Section: '+(p.fid?llmFieldSection(p.fid):''));
-  lines.push('Candidates:');
-  if(!cands.length)lines.push('- (none)');
-  cands.forEach(c=>{const cf=fieldById[c.fid];if(!cf)return;lines.push('- id: '+c.fid+' | label: '+cf.label+' | last year: '+String(cf.prev===''?'\u2014':cf.prev).slice(0,80)+' | type: '+cf.type);});
-  lines.push('Respond with strict JSON only: {"variableId":"<fid or null>","proposedValue":"...","confidence":0-100,"reasoning":"..."}');
+  lines.push('Classify each snippet below. Return a JSON array with exactly one object per item, in the same order, using this shape:');
+  lines.push('[{"variableId":"<fid or null>","proposedValue":"...","confidence":0-100,"reasoning":"<=12 words"}]');
+  lines.push('Strict JSON only, no markdown, no preamble, no extra keys.');
+  items.forEach((it)=>{
+    const p=it.p;
+    lines.push('Item '+it.idx+':');
+    lines.push('  snippet: '+(p.value||''));
+    lines.push('  label: '+(p.label||''));
+    lines.push('  source: '+(p.file||'')+(p.page?' page '+p.page:'')+(p.ref?' \u2014 '+p.ref:''));
+    lines.push('  section: '+(p.fid?llmFieldSection(p.fid):''));
+    if(!it.cands.length){lines.push('  candidates: (none)');return;}
+    it.cands.forEach(c=>{
+      const cf=fieldById[c.fid];if(!cf)return;
+      lines.push('  candidate: id '+c.fid+' | '+cf.label+(cf.prev!==''?' | last year '+(String(cf.prev).slice(0,80)):'')+' | type '+cf.type+' | det '+c.conf);
+    });
+  });
+  lines.push('IMPORTANT: Output ONLY the JSON array.');
   return lines.join('\n');
 }
-function llmParseOut(content){
+function llmParseBatch(content,n){
   if(typeof content!=='string')return null;
-  const i=content.indexOf('{'),j=content.lastIndexOf('}');
+  const i=content.indexOf('['),j=content.lastIndexOf(']');
   if(i<0||j<=i)return null;
-  try{
-    const o=JSON.parse(content.slice(i,j+1));
+  let arr=null;
+  try{arr=JSON.parse(content.slice(i,j+1));}catch(e){return null;}
+  if(!Array.isArray(arr))return null;
+  const out=[];
+  for(let k=0;k<n;k++){
+    const o=arr[k];
+    if(!o||typeof o!=='object'){out.push(null);continue;}
     const c=Number(o.confidence);
-    return {variableId:o.variableId===null||o.variableId===undefined||String(o.variableId)==='null'?null:String(o.variableId),proposedValue:o.proposedValue===undefined||o.proposedValue===null?null:String(o.proposedValue),confidence:Number.isFinite(c)?Math.max(0,Math.min(100,c)):-1,reasoning:String(o.reasoning||'')};
-  }catch(e){return null;}
+    out.push({variableId:o.variableId===null||o.variableId===undefined||String(o.variableId)==='null'?null:String(o.variableId),proposedValue:o.proposedValue===undefined||o.proposedValue===null?null:String(o.proposedValue),confidence:Number.isFinite(c)?Math.max(0,Math.min(100,c)):-1,reasoning:String(o.reasoning||'').split(/\s+/).filter(Boolean).slice(0,LLM_CFG.reasonWords).join(' ')});
+  }
+  return out;
 }
+function llmCancelRun(){LLM.cancel=true;llmRenderStatus();}
 async function llmRunPass(){
   if(!LLM.available||LLM.busy)return;
   llmSaveModel();
-  const targets=IMP.props.filter(p=>p.status==='unmatched'||p.status==='review'||p.status==='auto');
-  if(!targets.length){toast('Nothing to run \u2014 no unmatched or review items.');return;}
-  LLM.busy=true;llmRenderStatus();
+  const candMap=new Map();
+  IMP.props.forEach(p=>{candMap.set(p.id,llmCandidatesFor(p));});
+  const inScope=IMP.props.filter(p=>p.status==='unmatched'||p.status==='review');
+  const total=inScope.length;
+  const targets=inScope.filter(p=>llmEligible(p,candMap.get(p.id)||[]));
+  if(!targets.length){toast('Nothing to run — no item needs the LLM.');return;}
+  const nText=targets.filter(p=>LLM_TEXT_TYPES.has(String(p.type||''))).length;
+  const nAmb=targets.filter(p=>p.status==='review'&&!LLM_TEXT_TYPES.has(String(p.type||''))).length;
+  const nTray=targets.filter(p=>p.status==='unmatched'&&!LLM_TEXT_TYPES.has(String(p.type||''))).length;
+  const kept=total-targets.length;
+  LLM.busy=true;LLM.cancel=false;llmRenderStatus();
   const barWrap=$('#llmProgress'),fill=$('#llmBarFill'),txt=$('#llmProgressText'),note=$('#llmNote');
   if(barWrap){barWrap.classList.remove('hidden');barWrap.classList.add('flex');}
+  if(note)note.textContent=targets.length+' of '+total+' items need the LLM ('+nText+' text \u00B7 '+nAmb+' ambiguous \u00B7 '+nTray+' tray)'+(kept>0?' — '+kept+' keep their deterministic result.':'');
+  const batches=[];for(let i=0;i<targets.length;i+=LLM_CFG.batch)batches.push(targets.slice(i,i+LLM_CFG.batch));
   let done=0,promoted=0,reranked=0,skipped=0;
-  for(const p of targets){
-    const cands=llmCandidatesFor(p);
-    const user=llmUserPrompt(p,cands);
-    let r=null;
-    try{let pr;if(window.api&&typeof window.api.llmRunOne==='function')pr=window.api.llmRunOne({model:LLM.model,system:llmSystem(),user});else{pr=require('electron').ipcRenderer.invoke('llm-run-one',{model:LLM.model,system:llmSystem(),user});}r=await pr;}catch(e){r={ok:false,error:String(e)};}
-    done++;
-    if(fill)fill.style.width=Math.round(done/targets.length*100)+'%';
-    if(txt)txt.textContent=done+' / '+targets.length;
-    const out=r&&r.ok?llmParseOut(r.out):null;
-    if(!out||!out.variableId){skipped++;continue;}
-    const fid=out.variableId;
-    const fb=fieldById[fid];
-    if(!fb){skipped++;continue;}
-    if(!impTypeOk({type:p.type},fid)){p.reason='LLM suggested '+fb.label+' but type '+p.type+' does not fit \u2014 kept in tray.';skipped++;continue;}
-    const det=Math.max(5,Math.min(99,Math.round(p.conf||0)));
-    const blend=Math.round(0.5*(out.confidence>=0?out.confidence:det)+0.5*det);
-    const fromTray=p.status==='unmatched';
-    p.fid=fid;p.llm=true;p.llmReason=out.reasoning;
-    if(out.proposedValue!==null&&String(out.proposedValue).trim()!=='')p.value=String(out.proposedValue).trim();
-    p.status='review';
-    p.conf=Math.max(5,Math.min(99,blend));
-    p.reason='LLM: '+out.reasoning+(cands[0]?' \u00B7 det '+cands[0].conf+'%':'');
-    if(fromTray)promoted++;else reranked++;
-    impSave();
+  const t0=Date.now(),next={i:0};
+  function eta(){
+    if(done<=0)return '\u2014';
+    const per=(Date.now()-t0)/1000/done;
+    const left=Math.round(per*(targets.length-done));
+    return Math.floor(left/60)+'m '+String(left%60).padStart(2,'0')+'s';
   }
+  async function worker(){
+    while(true){
+      if(LLM.cancel)return;
+      const bi=next.i++;
+      if(bi>=batches.length)return;
+      const batch=batches[bi];
+      const items=batch.map((p,i)=>({p,cands:candMap.get(p.id)||[],idx:bi*LLM_CFG.batch+i+1}));
+      const user=llmBatchPrompt(items);
+      const maxTokens=items.length*LLM_CFG.tokPerItem+32;
+      let r=null;
+      try{let pr;if(window.api&&typeof window.api.llmRunOne==='function')pr=window.api.llmRunOne({model:llmActiveModel(),system:llmSystem(),user,maxTokens});else{pr=require('electron').ipcRenderer.invoke('llm-run-one',{model:llmActiveModel(),system:llmSystem(),user,maxTokens});}r=await pr;}catch(e){r={ok:false,error:String(e)};}
+      const outs=r&&r.ok?llmParseBatch(r.out,items.length):null;
+      if(!outs){skipped+=items.length;}
+      else{
+        items.forEach((it,oi)=>{
+          const p=it.p;const out=outs[oi];
+          if(!out||!out.variableId){skipped++;return;}
+          const fid=out.variableId;
+          const fb=fieldById[fid];
+          if(!fb){skipped++;return;}
+          if(!impTypeOk({type:p.type},fid)){p.reason='LLM suggested '+fb.label+' but type '+p.type+' does not fit \u2014 kept in tray.';skipped++;return;}
+          const det=Math.max(5,Math.min(99,Math.round(p.conf||0)));
+          const blend=Math.round(0.5*(out.confidence>=0?out.confidence:det)+0.5*det);
+          const fromTray=p.status==='unmatched';
+          p.fid=fid;p.llm=true;p.llmReason=out.reasoning;
+          if(out.proposedValue!==null&&String(out.proposedValue).trim()!=='')p.value=String(out.proposedValue).trim();
+          p.status='review';
+          p.conf=Math.max(5,Math.min(99,blend));
+          p.reason='LLM: '+out.reasoning+(it.cands[0]?' \u00B7 det '+it.cands[0].conf+'%':'');
+          if(fromTray)promoted++;else reranked++;
+        });
+      }
+      done+=items.length;
+      impSave();
+      if(fill)fill.style.width=Math.round(done/targets.length*100)+'%';
+      if(txt)txt.textContent=done+' / '+targets.length+' \u00B7 ~'+eta()+' left';
+      renderImportInbox();
+      llmRenderStatus();
+    }
+  }
+  await Promise.all(Array.from({length:Math.min(LLM_CFG.conc,batches.length)},worker));
   const files=[...new Set(targets.map(t=>t.file))];
   IMP.props.sort((a,b)=>{
     const ia=files.indexOf(a.file),ib=files.indexOf(b.file);
@@ -2765,11 +2842,11 @@ async function llmRunPass(){
     if((a.status==='unmatched')!==(b.status==='unmatched'))return a.status==='unmatched'?1:-1;
     return (b.conf||0)-(a.conf||0);
   });
-  LLM.busy=false;
-  if(note)note.textContent=promoted+' promoted from tray \u00B7 '+reranked+' re-ranked in queue \u00B7 '+skipped+' skipped (no match / type gate). Confidence = 50% LLM + 50% deterministic.';
+  LLM.busy=false;llmRenderStatus();
+  if(note)note.textContent=promoted+' promoted from tray \u00B7 '+reranked+' re-ranked in queue \u00B7 '+skipped+' skipped (no match / type gate)'+(LLM.cancel?' \u2014 CANCELLED, partial results kept.':' \u2014 done. Confidence = 50% LLM + 50% deterministic.');
   if(barWrap){barWrap.classList.add('hidden');barWrap.classList.remove('flex');}
-  llmRenderStatus();renderImportInbox();
-  toast('LLM pass done \u2014 '+promoted+' promoted to review queue.');
+  renderImportInbox();
+  toast(LLM.cancel?'LLM pass cancelled \u2014 partial results kept.':('LLM pass done \u2014 '+promoted+' promoted to review queue.'));
 }
 let IMP_EDIT=null,IMP_DEL=null;
 function renderImportInbox(){

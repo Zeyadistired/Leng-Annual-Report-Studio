@@ -250,22 +250,23 @@ app.whenReady().then(() => {
       tryPath(0);
     });
   }
-  async function llmChat(model, system, user) {
+  async function llmChat(model, system, user, maxTokens) {
     const ep = ai.endpoint();
     if (ai.managed()) {
       const res = await fetch(ep + '/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: String(model || 'qwen3:4b'),
+          model: String(model || 'qwen3:1.7b'),
           messages: [
             { role: 'system', content: String(system || '') },
             { role: 'user', content: String(user || '') }
           ],
           temperature: 0,
-          stream: false
+          stream: false,
+          max_tokens: maxTokens || 512
         }),
-        signal: AbortSignal.timeout(60000)
+        signal: AbortSignal.timeout(120000)
       });
       if (!res.ok) throw new Error('AI server HTTP ' + res.status);
       const j = await res.json();
@@ -278,15 +279,15 @@ app.whenReady().then(() => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: String(model || 'qwen3:4b'),
+        model: String(model || 'qwen3:1.7b'),
         messages: [
           { role: 'system', content: String(system || '') },
           { role: 'user', content: String(user || '') }
         ],
         stream: false,
-        options: { temperature: 0 }
+        options: { temperature: 0, num_predict: maxTokens || 512 }
       }),
-      signal: AbortSignal.timeout(60000)
+      signal: AbortSignal.timeout(120000)
     });
     if (!res.ok) throw new Error('Ollama HTTP ' + res.status);
     const j = await res.json();
@@ -301,7 +302,7 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('llm-run-one', async (e, payload) => {
     try {
-      const out = await llmChat(payload && payload.model, payload && payload.system, payload && payload.user);
+      const out = await llmChat(payload && payload.model, payload && payload.system, payload && payload.user, payload && payload.maxTokens);
       return { ok: true, out };
     } catch (err) {
       return { ok: false, error: String(err && err.message ? err.message : err) };
