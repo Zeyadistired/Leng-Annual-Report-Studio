@@ -15,6 +15,8 @@ Turn a pile of owner submissions into a polished, accreditation-ready annual rep
 
 **Download the ready-to-run installer → [Latest Release](https://github.com/Zeyadistired/Leng/releases/latest)**
 
+> 💡 If the latest release gives you trouble, try the **previous release** (one behind) instead — it's always kept available below the latest one.
+
 </div>
 
 ---
