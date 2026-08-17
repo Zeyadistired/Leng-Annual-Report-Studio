@@ -2,10 +2,10 @@
 
 <img src="docs/icon.png" alt="Leng" width="96" />
 
-# 🎓 Leng — Annual Report Studio
+# 🎓 Leng - Annual Report Studio
 
 **The annual report renewal workbench for Nile University's QMO.**
-Turn a pile of owner submissions into a polished, accreditation-ready annual report — powered by a local AI that reads, extracts, and verifies everything for you.
+Turn a pile of owner submissions into a polished, accreditation-ready annual report - powered by a local AI that reads, extracts, and verifies everything for you.
 
 [![Release](https://img.shields.io/badge/release-v1.0.2-1f4e8c?style=flat-square)](https://github.com/Zeyadistired/Leng/releases/latest)
 [![Electron](https://img.shields.io/badge/Electron-43.3.0-47848f?style=flat-square)](https://www.electronjs.org/)
@@ -15,7 +15,7 @@ Turn a pile of owner submissions into a polished, accreditation-ready annual rep
 
 **Download the ready-to-run installer → [Latest Release](https://github.com/Zeyadistired/Leng/releases/latest)**
 
-> 💡 If the latest release gives you trouble, try the **previous release** (one behind) instead — it's always kept available below the latest one.
+> 💡 If the latest release gives you trouble, try the **previous release** (one behind) instead - it's always kept available below the latest one.
 
 </div>
 
@@ -25,11 +25,11 @@ Turn a pile of owner submissions into a polished, accreditation-ready annual rep
 
 Leng is a **desktop app that builds NU's annual self-study report** from raw owner submissions (PDFs, Excels, Word docs). It runs **100% offline-first**:
 
-- 📥 **Import Inbox** — drop files in a watched folder and walk through scored, provenanced extraction proposals (`conf ≥ 90%` auto-accept, 60–89% → review)
-- 🧠 **Local AI** — a bundled `llama.cpp` server runs **Qwen3 (1.7B / 4B)** on your machine; no cloud, no API keys, no uploads
-- 🗂 **182 variables across 20 sections** — a typed data model (`text / long / num / pct`, `required / verify / optional`) mirroring the printed report
-- ✅ **Auto questionnaire & QC** — 8-owner matrix consistency checks, carry-forward of last year's values, readiness score, and 5-class issue report (missing / matrix / old date / inconsistency / carry)
-- 🖨 **Accreditation-grade exports** — Markdown, HTML, styled DOCX, print, A4 PDF, and an audit-ready QC package of every import decision
+- 📥 **Import Inbox** - drop files in a watched folder and walk through scored, provenanced extraction proposals (`conf ≥ 90%` auto-accept, 60–89% → review)
+- 🧠 **Local AI** - a bundled `llama.cpp` server runs **Qwen3 (1.7B / 4B)** on your machine; no cloud, no API keys, no uploads
+- 🗂 **182 variables across 20 sections** - a typed data model (`text / long / num / pct`, `required / verify / optional`) mirroring the printed report
+- ✅ **Auto questionnaire & QC** - 8-owner matrix consistency checks, carry-forward of last year's values, readiness score, and 5-class issue report (missing / matrix / old date / inconsistency / carry)
+- 🖨 **Accreditation-grade exports** - Markdown, HTML, styled DOCX, print, A4 PDF, and an audit-ready QC package of every import decision
 
 ## 🖼 Screenshots
 
@@ -46,13 +46,13 @@ Leng is a **desktop app that builds NU's annual self-study report** from raw own
 
 ## 🚀 Getting started
 
-### Option A — just use it (no install steps beyond one file)
+### Option A - just use it (no install steps beyond one file)
 
 1. Grab **`Leng Setup 1.0.0.exe`** from the [latest release](https://github.com/Zeyadistired/Leng/releases/latest)
-2. Run the installer — done
-3. On first launch the app offers to download a small AI model (~1.1 GB Qwen3 1.7B) — or skip it and work manually
+2. Run the installer - done
+3. On first launch the app offers to download a small AI model (~1.1 GB Qwen3 1.7B) - or skip it and work manually
 
-### Option B — run from source
+### Option B - run from source
 
 ```bash
 npm install
@@ -70,7 +70,7 @@ npm run portable # build the portable exe variant
 | Flags | `--reasoning off` (kills hidden-reasoning latency, **11× faster**), `--ctx-size 2048`, `--parallel 2`, flash-attention |
 | QC pass | Batches 8 values/request × 2 concurrent, 60 tokens per value, per-batch persistence, live ETA + cancel |
 | ML attribution | Local embeddings (all-MiniLM-L6-v2, ONNX/WASM) attribute files to owners (`cos ≥ 0.45`, learns from the last 40 docs) |
-| OCR | Scanned PDFs are OCR'd locally via Tesseract WASM — zero cloud calls |
+| OCR | Scanned PDFs are OCR'd locally via Tesseract WASM - zero cloud calls |
 
 **Everything is self-contained**: model download, checksums, server spawn, model switching (auto-restart), and port selection happen in-app. Settings live in `%APPDATA%\Leng` (macOS: `~/Library/Application Support/Leng`).
 
@@ -80,18 +80,18 @@ npm run portable # build the portable exe variant
 1 · Sources  → 2 · Sections & Variables  → 3 · Questionnaire  → 4 · Full Draft & QC  → 5 · Export
 ```
 
-1. **Sources** — pick files or watch a folder; every accepted value keeps provenance `{file, ref, page, conf, type, at}`
-2. **Sections** — 20 sections, 182 variables, carry-forward, manual overrides
-3. **Questionnaire** — matrix auto-checks and owner-level consistency
-4. **Full Draft & QC** — readiness %, 5 issue classes, full change log, AI review pass
-5. **Export** — MD · HTML · DOCX · print · A4 PDF · QC package
+1. **Sources** - pick files or watch a folder; every accepted value keeps provenance `{file, ref, page, conf, type, at}`
+2. **Sections** - 20 sections, 182 variables, carry-forward, manual overrides
+3. **Questionnaire** - matrix auto-checks and owner-level consistency
+4. **Full Draft & QC** - readiness %, 5 issue classes, full change log, AI review pass
+5. **Export** - MD · HTML · DOCX · print · A4 PDF · QC package
 
 ## 🛠 Tech stack
 
-- **Electron 43** — desktop shell (main / preload / renderer, nodeIntegration)
+- **Electron 43** - desktop shell (main / preload / renderer, nodeIntegration)
 - **Vanilla JS** in `app.html` (~3,000 lines, zero framework) + Tailwind
-- **pdf.js, SheetJS (xlsx), mammoth, docx (JS), Tesseract.js, transformers.js** — all pure JS/WASM, all offline
-- **llama.cpp** — local inference via pinned release + SHA-256 verification
+- **pdf.js, SheetJS (xlsx), mammoth, docx (JS), Tesseract.js, transformers.js** - all pure JS/WASM, all offline
+- **llama.cpp** - local inference via pinned release + SHA-256 verification
 
 ```
 AnnualReportStudio/
@@ -114,7 +114,7 @@ Every release ships a ready-to-run installer **plus** a full source snapshot:
 
 ## 🤝 Contributing
 
-Built for Nile University's QMO. Found a bug, or want a feature (e.g. **macOS build — in progress**)? Open an issue or a PR.
+Built for Nile University's QMO. Found a bug, or want a feature (e.g. **macOS build - in progress**)? Open an issue or a PR.
 
 ---
 
