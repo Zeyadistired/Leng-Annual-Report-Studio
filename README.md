@@ -1,5 +1,7 @@
 ﻿<div align="center">
 
+<img src="docs/icon.png" alt="Leng" width="96" />
+
 # 🎓 Leng — Annual Report Studio
 
 **The annual report renewal workbench for Nile University's QMO.**
